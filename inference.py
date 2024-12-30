@@ -24,7 +24,7 @@ def read_file(file_path):
         prompts = json.load(file)
 
     # 将100条变为1条
-    prompts = [prompt.replace("帮我生成100条高质量的指令微调数据", "帮我生成1条高质量的指令微调数据") for prompt in prompts]
+    prompts = [re.sub(r"帮我生成\d+条高质量的指令微调数据", "帮我生成1条高质量的指令微调数据", prompt) for prompt in prompts]
 
     # 增加一些关键词
     add_info = "\n输出的字数不超过500字，确保只生成一条数据，不要生成多条数据。以'{'开始，以'}'结束，确保生成的数据可以被json.loads()成功解析。"
@@ -32,10 +32,32 @@ def read_file(file_path):
     return new_prompts
 
 
+def try_parse_json(item, attempt):
+    try:
+        return json.loads(item, strict=False), True
+    except json.JSONDecodeError as e:
+        print(f"第 {attempt} 次解析出错:", end="")
+        print(f"解析出错的字符串: {repr(item)}")
+        print(f"错误信息: {e}")
+        return None, False
+
+
+def post_process(item):
+    if not item.endswith('\"\n}'):
+        # 从后往前找到第一个全角符号的索引位置
+        for i in range(len(item) - 1, -1, -1):
+            if ord(item[i]) > 255:
+                item = item[:i + 1]  # 截取
+                break
+        # 加上 `\"\n}`
+        item += '\"\n}'
+    return item
+
+
 def main(file_name="instruction_12"):
     # 设置路径
     file_path = f'./instructions/{file_name}.json'
-    output_path = f'./outputs/{file_name}_result.json'
+    output_path = f'./outputs/{model_name}/{file_name}_result_on_{model_name}.json'
     raw_outputs_path = f'./outputs/{file_name}_raw_outputs.json'
     error_list_path = f'./outputs/{file_name}_error_list.json'
 
@@ -46,7 +68,7 @@ def main(file_name="instruction_12"):
     outputs = []
     for i, prompt in enumerate(prompts):
         print("generating output for prompt", i)
-        output_list = gpt(prompt, model=model_name, max_tokens=1000, n=100)  # 先设置小一点测试，跑通后再改为100
+        output_list = gpt(prompt, model=model_name, max_tokens=1000, n=120)  # 先设置小一点测试，跑通后再改为100
         outputs.extend(output_list)
 
     # 保存原始输出
@@ -58,21 +80,27 @@ def main(file_name="instruction_12"):
     error_count = 0
     error_list = []
     for item in outputs:
-        # 对item进行后处理
-        # item = item.replace("\r", "\\r").replace("\t", "\\t")
-        # item = re.sub(r'[\x00-\x1f\x7f]', '', item)
-        try:
-            parsed_results.append(json.loads(item, strict=False))
-        except json.JSONDecodeError as e:
-            print(f"解析出错的字符串: {repr(item)}")
-            print(f'错误信息: {e}')
-            parsed_results.append({
+        # 第一次尝试解析
+        result, is_success = try_parse_json(item, attempt=1)
+
+        # 如果解析失败，进行后处理
+        if not is_success:
+            item_new = post_process(item)
+            result, is_success = try_parse_json(item_new, attempt=2)
+
+        # 如果所有解析都失败，将错误数据保存到 error_list
+        if not is_success:
+            result = {
                 "类别": "错误数据",
                 "输入": "None",
                 "输出": "None"
-            })
+            }
             error_count += 1
             error_list.append(item)
+
+        # 将结果保存到 parsed_results
+        if is_success:
+            parsed_results.append(result)
 
     # 保存解析结果
     with open(output_path, 'w', encoding='utf-8') as f:
@@ -89,8 +117,8 @@ def main(file_name="instruction_12"):
 if __name__ == '__main__':
     # 测试接口
     # prompt = "你好！能为我介绍一下Python编程语言吗？"
-    # output = gpt(prompt, model="Qwen2.5-0.5B-Instruct", n=5)
+    # output = gpt(prompt, model=model_name, n=5)
     # print(output)
 
-    for i in [12]:
+    for i in [20]:
         main(f"instruction_{i}")
