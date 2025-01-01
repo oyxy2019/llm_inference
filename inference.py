@@ -15,6 +15,9 @@ import re
 os.environ['OPENAI_API_KEY'] = "EMPTY"
 os.environ['OPENAI_API_BASE'] = "http://localhost:8000/v1"
 model_name = "Qwen2.5-7B-Instruct"
+model_name = "deepseek-llm-7b-chat"
+model_name = "glm-4-9b-chat"
+# model_name = "Yi-1.5-9B-Chat"
 from models import gpt
 from send_email_utils import send_email
 
@@ -44,14 +47,32 @@ def try_parse_json(item, attempt):
 
 def post_process(item):
     if not item.endswith('\"\n}'):
-        # 从后往前找到第一个全角符号的索引位置
+        # 从后往前找到第一个非特殊符号的索引位置
         for i in range(len(item) - 1, -1, -1):
-            if ord(item[i]) > 255:
+            if item[i] not in {'\"', '}', '\n', '\\', ' ', '`'}:
                 item = item[:i + 1]  # 截取
                 break
         # 加上 `\"\n}`
         item += '\"\n}'
     return item
+
+
+def post_process2(item):
+    # 查找 "输出": 的位置
+    idx1 = item.find('"输出":"') + len('"输出":"')
+    if idx1 == -1:
+        print("未找到 '\"输出\":\"'，无需处理")
+        return item
+    # 查找字符串最后一个双引号的位置
+    idx2 = item.rfind('"')
+    if idx2 == -1 or idx2 <= idx1:
+        print("未找到合适的结尾双引号，无法处理")
+        return item
+    # 对双引号添加转义
+    output_content = item[idx1:idx2]
+    escaped_output_content = output_content.replace('"', '\\"')
+    processed_item = item[:idx1] + escaped_output_content + item[idx2:]
+    return processed_item
 
 
 def main(file_name="instruction_12"):
@@ -88,6 +109,11 @@ def main(file_name="instruction_12"):
             item_new = post_process(item)
             result, is_success = try_parse_json(item_new, attempt=2)
 
+        # 如果解析失败，进行第二次后处理
+        if not is_success:
+            item_new = post_process2(item_new)
+            result, is_success = try_parse_json(item_new, attempt=3)
+
         # 如果所有解析都失败，将错误数据保存到 error_list
         if not is_success:
             result = {
@@ -120,5 +146,6 @@ if __name__ == '__main__':
     # output = gpt(prompt, model=model_name, n=5)
     # print(output)
 
-    for i in [20]:
+    for i in range(20, 34):
+    # for i in [20]:
         main(f"instruction_{i}")

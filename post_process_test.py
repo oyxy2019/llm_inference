@@ -24,15 +24,35 @@ def post_process(item):
     return item
 
 
-error_list_path = "./outputs/instruction_15_error_list.json"
+def post_process2(item):
+    # 查找 "输出": 的位置
+    idx1 = item.find('"输出":"') + len('"输出":"')
+    if idx1 == -1:
+        print("未找到 '\"输出\":\"'，无需处理")
+        return item
+    # 查找字符串最后一个双引号的位置
+    idx2 = item.rfind('"')
+    if idx2 == -1 or idx2 <= idx1:
+        print("未找到合适的结尾双引号，无法处理")
+        return item
+    # 对双引号添加转义
+    output_content = item[idx1:idx2]
+    escaped_output_content = output_content.replace('"', '\\"')
+    processed_item = item[:idx1] + escaped_output_content + item[idx2:]
+    return processed_item
+
+
+error_list_path = "./outputs/instruction_20_error_list.json"
 
 with open(error_list_path, "r", encoding="utf-8") as file:
     error_list = json.load(file)
 
 for item in error_list:
-    item_new = post_process(item)
+    item_new = post_process2(item)
     print("item0", repr(item))
     print("item1", repr(item_new))
     result, is_success = try_parse_json(item_new, attempt=1)
     if is_success:
         print("解析成功！！！")
+    else:
+        print()
